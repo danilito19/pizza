@@ -1,0 +1,149 @@
+---
+title: "Pizza"
+output: html_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+
+********EXPLORATORY PHASE
+
+```{r}
+install.packages("jsonlite")
+library(jsonlite)
+setwd('/Users/Dana/Dropbox/dataScience/Pizza')
+pizza <-fromJSON("train.json")
+colnames(pizza)
+
+##look up some averages to get idea of data
+summary(pizza$number_of_downvotes_of_request_at_retrieval)
+summary(pizza$number_of_upvotes_of_request_at_retrieval)
+
+##who got 47 downvotes and who got 345 upvotes?
+subset(pizza, number_of_downvotes_of_request_at_retrieval ==47)
+subset(pizza, number_of_upvotes_of_request_at_retrieval ==345)
+```
+
+Questions to answer:
+Do older accounts get more pizza? What about new accounts? (0-1 day old)
+Do male / female get more pizza? How to distinguish gender in text?
+
+
+```{r, echo=FALSE}
+library(ggplot2)
+ggplot(aes(x=requester_received_pizza, y = requester_account_age_in_days_at_request ), data = pizza) + geom_boxplot()
+##shows that there were no very new accounts who did receive pizza, and that the median of account age is higher for those who did receive pizza, but outliers of really old account didn't receive pizza
+
+ggplot(aes(x=requester_received_pizza, y = requester_account_age_in_days_at_request ), data = pizza) + geom_boxplot() + ylim(0, 1000)
+
+##take out outliers
+pizza_nooutliers <- subset(pizza, requester_account_age_in_days_at_request < 1000)
+ggplot(aes(x=requester_received_pizza, y = requester_account_age_in_days_at_request ), data = pizza_nooutliers) + geom_boxplot()
+
+pizza_nooutliers750 <- subset(pizza, requester_account_age_in_days_at_request < 750)
+ggplot(aes(x=requester_received_pizza, y = requester_account_age_in_days_at_request ), data = pizza_nooutliers750) + geom_boxplot()
+
+```
+
+Is there correlation between older accoutns and getting pizza?
+```{r}
+pizza$received_pizza <-ifelse(pizza$requester_received_pizza == 'TRUE', 1, 0)
+cor.test(pizza$received_pizza, pizza$requester_account_age_in_days_at_request)
+##seems like there is a correlation between account age and receiving pizza
+
+##BUT SHOULD TAKE OUT OUTLIERS TO BE MORE ACCURATE, use no outliers df
+cor.test(pizza_nooutliers$received_pizza, pizza_nooutliers$requester_account_age_in_days_at_request)
+
+cor.test(pizza_nooutliers750$received_pizza, pizza_nooutliers750$requester_account_age_in_days_at_request)
+##taking out outliers reduces correlation, cannot prove correlation between age of account and getting pizza (0 included in confidence interval)
+## SO I can't determine that having an older account is likely to get you more pizza, but it does seem like those who got pizza had slightly older accounts
+
+```
+
+check if up or downvotes affected getting pizza - have to consider that some posts aren't asking for pizza -just normal posts
+
+```{r}
+ggplot(aes(x=requester_received_pizza, y = number_of_upvotes_of_request_at_retrieval), data = pizza) + geom_boxplot()
+ggplot(aes(x=requester_received_pizza, y = number_of_downvotes_of_request_at_retrieval), data = pizza) + geom_boxplot()
+
+##use upvotes because downvotes media looks the same for yes and no
+##create df taking out outliers of upvotes
+pizza_upvoteoutliers <- subset(pizza, number_of_upvotes_of_request_at_retrieval < 100)
+ggplot(aes(x=requester_received_pizza, y = number_of_upvotes_of_request_at_retrieval), data = pizza_upvoteoutliers) + geom_boxplot() 
+##more upvotes seems a bit to influence getting pizza
+
+cor.test(pizza$received_pizza, pizza$number_of_upvotes_of_request_at_retrieval)
+cor.test(pizza_upvoteoutliers$received_pizza, pizza_upvoteoutliers$number_of_upvotes_of_request_at_retrieval)
+
+##there is a correlation between upvotes and getting a pizza, but is there a specific number of upvotes that is more likely to get me pizza? What if the upvotes came AFTER the pizza is received - so pizza received is influecing number of upvotes. 
+#Also, bc up and downvotes are calculated at retrieval, what if I saw the post after the person received the pizza but still up/downvoted?
+
+
+```
+
+What if we look at the poster's number of posts at the time of request? Maybe age of account doesn't matter as much as activity on reddit
+
+```{r}
+summary(pizza$requester_number_of_posts_at_request)
+ggplot(aes(x=requester_received_pizza, y = requester_number_of_posts_at_request), data = pizza) + geom_boxplot()
+cor.test(pizza$received_pizza, pizza$requester_number_of_posts_at_request)
+##without taking out outliers, there isn't a correlation between getting pizza and posting more
+```
+
+look for specific words in requester text to see if they elicit pizza - use natural language processing
+
+```{r}
+## request_text and request_title should be checked
+##words like disability, military, subsistance, poor, needy, puppy, sick, mother may give higher probabilities of getting pizza
+
+##create new df with only text columns and whether user received
+pizza_text <- pizza[, c("request_title", "request_text", "received_pizza")]
+
+```
+
+
+CLASSIFICATION PROBLEM: combine multiple weak predictors to come up with a strong one, since I can't come up with single predictors from the exploratory phase. Unlike regression, classification maps inputs to discrete outputs (characteristics of post mapped to yes or no received pizza)
+
+Maybe use logistic regression.  With the features I have, find out what are the probabilities that each instances = getting a pizza (1). Apply same algorithm to test set and decide, for example, that if probability is 0.5 or more, then y = 1 (got a pizza)
+
+Plot x = upvotes at retrieval y = number of comments at request, color points by got pizza or didn't get pizza and any other combination of x and y and color by got or didn't get pizza so we can see if any ***clusters**** emerge
+
+
+```{r}
+ggplot(aes(x=number_of_upvotes_of_request_at_retrieval, y = requester_number_of_comments_at_request), data = pizza) +
+  geom_point(aes(color = received_pizza)) 
+
+ggplot(aes(x=number_of_upvotes_of_request_at_retrieval, y = requester_account_age_in_days_at_request), data = pizza) +
+  geom_point(aes(color = received_pizza)) + xlim(0, 100) + ylim(0, 1000)
+###some mild cluster left to right
+```
+
+Run a logit regression
+```{r}
+mylogit <- glm(received_pizza ~ number_of_upvotes_of_request_at_retrieval + requester_account_age_in_days_at_request + requester_number_of_comments_at_request + requester_number_of_posts_at_request, data = pizza, family = "binomial")
+summary(mylogit)
+```
+The logistic regression coefficients give the change in the log odds of the outcome for a one unit increase in the predictor variable. So if I have a negative coeff, it means that a unit increase in that variable means that coefficient decrease in the likelihood of getting 1 (getting pizza)
+
+The only statistically significant result is the number of upvotes at retrieval. It seems that a unit increase in the number of upvotes increases the likelihood of getting pizza (versus not getting pizza) by 2.5. 
+
+
+Now consider transforming some of the variables - maybe getting a ^2 or log version
+```{r}
+pizza$number_of_upvotes_of_request_at_retrieval_ln <- log(pizza$number_of_upvotes_of_request_at_retrieval)
+
+ggplot(aes(x=number_of_upvotes_of_request_at_retrieval_ln, y = requester_number_of_comments_at_request), data = pizza) +
+  geom_point(aes(color = received_pizza)) 
+
+pizza$number_of_upvotes_of_request_at_retrieval_2 <- (pizza$number_of_upvotes_of_request_at_retrieval)^2
+
+ggplot(aes(x=number_of_upvotes_of_request_at_retrieval_2, y = requester_number_of_comments_at_request), data = pizza) +
+  geom_point(aes(color = received_pizza)) 
+```
+Transforming upvotes did not help very much. I still see some type of left - right clustering of no pizza / yes pizza
+
+http://www.runzemc.com/2014/08/random-acts-of-pizza.html
+
+
